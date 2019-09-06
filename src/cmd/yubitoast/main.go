@@ -14,12 +14,13 @@ import (
 var pkAuthRegexp = regexp.MustCompile("PKAUTH OPENPGP\\.3$")
 var pkSignRegexp = regexp.MustCompile("PKSIGN --hash=.+ OPENPGP\\.1$")
 
-var logfile = flag.String("logfile", "/var/log/gpg-agent.log", "path to gpg-agent.log")
+var fLogfile = flag.String("logfile", "/var/log/gpg-agent.log", "path to gpg-agent.log")
+var fVerbose = flag.Bool("verbose", false, "verbose logging")
 
 func main() {
 	flag.Parse()
 
-	t, err := tail.TailFile(*logfile, tail.Config{
+	t, err := tail.TailFile(*fLogfile, tail.Config{
 		Follow: true,
 		// seek to end of file
 		Location: &tail.SeekInfo{
@@ -28,12 +29,14 @@ func main() {
 		},
 	})
 	if err != nil {
-		panic(errors.Wrapf(err, "tail gpg-agent log [%s]", (logfile)))
+		panic(errors.Wrapf(err, "tail gpg-agent log [%s]", (fLogfile)))
 	}
 
 	// now we wait
 	for line := range t.Lines {
-		fmt.Println(line.Text)
+		if *fVerbose {
+			fmt.Println(line.Text)
+		}
 
 		if pkAuthRegexp.Match([]byte(line.Text)) {
 			showNotification("Authenticate")
