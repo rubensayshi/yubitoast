@@ -2,28 +2,30 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"regexp"
-	"runtime"
-	"os/exec"
-
-	"github.com/pkg/errors"
 
 	"github.com/hpcloud/tail"
-	"github.com/martinlindhe/notify"
+	"github.com/juju/loggo"
+	"github.com/pkg/errors"
+	"github.com/rubensayshi/yubitoast/src/log"
+	"github.com/rubensayshi/yubitoast/src/notifier"
+	"github.com/rubensayshi/yubitoast/src/toaster"
 )
 
-var pkAuthRegexp = regexp.MustCompile("PKAUTH OPENPGP\\.3$")
-var pkSignRegexp = regexp.MustCompile("PKSIGN --hash=.+ OPENPGP\\.1$")
-
 var fLogfile = flag.String("logfile", "/var/log/gpg-agent.log", "path to gpg-agent.log")
-var fVerbose = flag.Bool("verbose", false, "verbose logging")
-var fPopup = flag.Bool("popup", false, "show popup (if supported)")
-
-const popupTimeout = 10 // seconds
+var fDebug = flag.Bool("debug", false, "verbose / debug logging")
+var fTrace = flag.Bool("trace", false, "super verbose / trace logging")
+var fNotifier = flag.String("notifier", "fyne", "notifier type to use; [native | fyne]")
 
 func main() {
 	flag.Parse()
+
+	logger := loggo.GetLogger("yubitoast")
+	logger.SetLogLevel(loggo.INFO)
+	if *fTrace {
+		logger.SetLogLevel(loggo.TRACE)
+	} else if *fDebug {
+		logger.SetLogLevel(loggo.DEBUG)
+	}
 
 	t, err := tail.TailFile(*fLogfile, tail.Config{
 		Follow: true,
@@ -32,48 +34,22 @@ func main() {
 			Offset: 0,
 			Whence: 2,
 		},
+		Logger: log.TailLoggoLogger{logger.Child("tail")},
 	})
 	if err != nil {
 		panic(errors.Wrapf(err, "tail gpg-agent log [%s]", (fLogfile)))
 	}
 
-	usePopup := false
-	if *fPopup {
-		switch {
-		case runtime.GOOS == "darwin":
-			usePopup = true
-		default:
-			fmt.Println("-popup not supported on", runtime.GOOS)
-		}
-	}
-
-	// now we wait
-	for line := range t.Lines {
-		if *fVerbose {
-			fmt.Println(line.Text)
-		}
-
-		if pkAuthRegexp.Match([]byte(line.Text)) {
-			showNotification("Authenticate", usePopup)
-		} else if pkSignRegexp.Match([]byte(line.Text)) {
-			showNotification("Sign", usePopup)
-		}
-	}
-}
-
-func showNotification(msg string, usePopup bool) {
-	appName := "Yubikey Touch Requested"
-
-	switch {
-	case runtime.GOOS == "darwin" && usePopup:
-		arg := fmt.Sprintf("tell app \"System Events\" to display dialog \"%s\" buttons \"Close\" with title \"%s\" with icon caution giving up after (%d)", appName, msg, popupTimeout)
-		cmd := exec.Command("osascript", "-e", arg)
-		err := cmd.Run()
-		if err != nil {
-			fmt.Println(errors.Wrapf(err, "osascript").Error())
-		}
+	var notifierFn func(loggo.Logger, <-chan *notifier.PopupEvent) notifier.Notifier
+	switch *fNotifier {
+	case "native":
+		notifierFn = notifier.NewNativeToastNotifier
+	case "fyne":
+		notifierFn = notifier.NewFyneNotifier
 	default:
-		notify.Notify("Yubikey Touch Requested", "", msg, "gnupg.png")
-		notify.Notify(appName, "", msg, "gnupg.png")
+		panic(errors.Errorf("Invalid notifier: %s", *fNotifier))
 	}
+
+	toaster := toaster.NewToaster(logger, notifierFn)
+	toaster.Run(t.Lines)
 }
