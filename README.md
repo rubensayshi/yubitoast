@@ -4,14 +4,22 @@ This little CLI daemon keeps an eye on your `gpg-agent` log
 and when it detects a request to your Yubikey for signing or authenticating it will pop a small notification.
 
 Notifications are done using the wonderful cross platform: https://github.com/martinlindhe/notify  
-Eventhough it's deprecated it seems to work better than it's alternatives ...
+Eventhough it's deprecated it seems to work better than it's alternatives ...  
+Or using https://github.com/fyne-io/fyne to create a custom popup (new default).
+
 
 Usage
 -----
 ```
 $ yubitoast -h
+  -debug
+    	verbose / debug logging
   -logfile string
     	path to gpg-agent.log (default "/var/log/gpg-agent.log")
+  -notifier string
+    	notifier type to use; [native | fyne] (default "fyne")
+  -trace
+    	super verbose / trace logging
 ```
 
 GPG-Agent
