@@ -60,6 +60,8 @@ func (t *Toaster) run() {
 			t.timeouts[parseEvent.ChanId] = time.AfterFunc(15*time.Second, func() {
 				delete(t.timeouts, parseEvent.ChanId)
 				delete(t.pending, parseEvent.ChanId)
+
+				t.popupChan <- &notifier.PopupEvent{Toggle: false}
 			})
 
 			t.popupChan <- &notifier.PopupEvent{Toggle: true}

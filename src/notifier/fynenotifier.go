@@ -2,40 +2,44 @@ package notifier
 
 import (
 	"fmt"
-	"os/exec"
+	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 
 	"fyne.io/fyne"
 	"fyne.io/fyne/app"
 	"fyne.io/fyne/widget"
-	"github.com/gobuffalo/packr"
+	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/gobuffalo/packr/v2"
 	"github.com/juju/loggo"
-	"github.com/rubensayshi/yubitoast/src/utils"
 )
 
 type FyneNotifier struct {
 	logger    loggo.Logger
 	popupChan <-chan *PopupEvent
-	box       packr.Box
+	box       *packr.Box
 }
 
 func NewFyneNotifier(logger loggo.Logger, popupChan <-chan *PopupEvent) Notifier {
-	box := packr.NewBox(utils.ROOT + "/imgs")
-
 	return &FyneNotifier{
 		logger:    logger,
 		popupChan: popupChan,
-		box:       box,
+		box:       NewImgsBox(),
 	}
 }
 
 func (n *FyneNotifier) Run() {
-	fapp := app.New()
+	fappLock := sync.RWMutex{}
+	fappLock.Lock()
+
+	var fapp fyne.App
+
+	var focus string = ""
 
 	iconBuf, err := n.box.Find("gnupg.png")
 	if err != nil {
-		panic(errors.Wrapf(err, ""))
+		panic(errors.Wrapf(err, "read gnupg.png"))
 	}
 	icon := fyne.NewStaticResource("gnupg.png", iconBuf)
 
@@ -43,59 +47,78 @@ func (n *FyneNotifier) Run() {
 		var w fyne.Window
 		pendingCnt := 0
 
+		wait := make(chan bool, 1)
+
 		go func() {
-			logger := n.logger.Child("view")
-			for event := range n.popupChan {
-				n.logger.Debugf("toggle: %v \n", event.Toggle)
+			for {
+				select {
+				case <-wait:
+					<-time.After(500 * time.Millisecond)
 
-				if !event.Toggle {
-					pendingCnt--
-				} else {
-					pendingCnt++
-				}
+				case event := <-n.popupChan:
+					n.logger.Debugf("toggle: %v \n", event.Toggle)
 
-				// close previous open window
-				if pendingCnt <= 0 && w != nil {
-					n.logger.Debugf("force close")
-					w.Close()
-				}
-
-				if pendingCnt > 0 {
-					if w == nil {
-						n.logger.Tracef("new \n")
-						w = fapp.NewWindow("YubiToast")
-						w.Resize(fyne.NewSize(500, 0))
-						w.SetIcon(icon)
-						w.SetOnClosed(func() {
-							n.logger.Child("gui").Debugf("on close")
-							// @TODO: race
-							w = nil
-							altTab(logger)
-						})
+					if !event.Toggle {
+						pendingCnt--
 					} else {
-						n.logger.Tracef("reuse \n")
+						pendingCnt++
 					}
 
-					label := widget.NewLabel(fmt.Sprintf("Please touchy %d times!", pendingCnt))
-					label.Alignment = fyne.TextAlignCenter
-
-					btn := widget.NewButton("OK", func() {
-						n.logger.Child("gui").Debugf("click close")
+					// close previous open window
+					if pendingCnt <= 0 && w != nil {
+						n.logger.Debugf("force close")
+						// will trigger OnClosed
 						w.Close()
-						// @TODO: race
-						w = nil
-						altTab(logger)
-					})
-					btn.SetIcon(icon)
+						// signal loop to wait a little bit
+						wait <- true
+						// reset counter to fix any odd bugs
+						pendingCnt = 0
+					}
 
-					w.SetContent(widget.NewVBox(
-						label,
-						btn,
-					))
+					if pendingCnt > 0 {
+						if w == nil {
+							n.logger.Tracef("new! old focus: %s \n", focus)
 
-					// only (re)focus window when event.Toggle=true
-					if event.Toggle {
-						w.Show()
+							fappLock.RLock()
+							// don't focus the window on show
+							glfw.WindowHint(glfw.FocusOnShow, 0)
+							// window is set to be always ontop
+							glfw.WindowHint(glfw.Floating, 1)
+							w = fapp.NewWindow("YubiToast")
+							fappLock.RUnlock()
+
+							w.Resize(fyne.NewSize(500, 0))
+							w.SetIcon(icon)
+							w.SetOnClosed(func() {
+								n.logger.Child("gui").Debugf("on close")
+								// @TODO: race
+								w = nil
+							})
+						} else {
+							n.logger.Tracef("reuse \n")
+						}
+
+						label := widget.NewLabel(fmt.Sprintf("Please touchy %d times!", pendingCnt))
+						label.Alignment = fyne.TextAlignCenter
+
+						btn := widget.NewButton("CLOSE", func() {
+							n.logger.Child("gui").Debugf("click close")
+							// will trigger OnClosed
+							w.Close()
+							// signal loop to wait a little bit
+							wait <- true
+						})
+						btn.SetIcon(icon)
+
+						w.SetContent(widget.NewVBox(
+							label,
+							btn,
+						))
+
+						// refocus window when event.Toggle=true
+						if event.Toggle {
+							w.Show()
+						}
 					}
 				}
 			}
@@ -105,15 +128,29 @@ func (n *FyneNotifier) Run() {
 	// blocking, needs to be on main thread
 	// stops blocking every time the last window is closed, so we do it forever
 	for {
-		n.logger.Debugf("Run... \n")
+		n.logger.Debugf("RUN... \n")
+
+		// make a new fapp
+		fapp = app.New()
+
+		// release the fappLock after 100ms so that fapp can be used
+		//  in a go routine because fapp.Run() is blocking and needs to be on main thread...
+		timer := time.AfterFunc(100*time.Millisecond, func() {
+			fappLock.Unlock()
+		})
+
 		fapp.Run()
 
-		fapp = app.New()
-	}
-}
+		n.logger.Debugf("RIP... \n")
 
-func altTab(logger loggo.Logger) {
-	logger.Child("alttab").Debugf("alttab")
-	//exec.Command("osascript", "-e", "tell application \"iTerm2\" to activate").Run()
-	exec.Command("osascript", "-e", "tell application \"System Events\" to keystroke tab using command down").Run()
+		// quit to cleanup
+		fapp.Quit()
+
+		// cancel the unlock
+		timer.Stop()
+
+		// obtain lock to prevent further usage of fapp
+		fappLock.Lock()
+
+	}
 }
