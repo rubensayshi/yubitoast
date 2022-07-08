@@ -10,22 +10,18 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/go-gl/glfw/v3.3/glfw"
-	"github.com/gobuffalo/packr/v2"
 	"github.com/juju/loggo"
-	"github.com/pkg/errors"
 )
 
 type FyneNotifier struct {
 	logger    loggo.Logger
 	popupChan <-chan *PopupEvent
-	box       *packr.Box
 }
 
 func NewFyneNotifier(logger loggo.Logger, popupChan <-chan *PopupEvent) Notifier {
 	return &FyneNotifier{
 		logger:    logger,
 		popupChan: popupChan,
-		box:       NewImgsBox(),
 	}
 }
 
@@ -35,11 +31,7 @@ func (n *FyneNotifier) Run() {
 
 	var fapp fyne.App
 
-	iconBuf, err := n.box.Find("gnupg.png")
-	if err != nil {
-		panic(errors.Wrapf(err, "read gnupg.png"))
-	}
-	icon := fyne.NewStaticResource("gnupg.png", iconBuf)
+	icon := fyne.NewStaticResource("gnupg.png", icon)
 
 	{
 		var w fyne.Window
@@ -111,10 +103,12 @@ func (n *FyneNotifier) Run() {
 							btn,
 						))
 
-						n.logger.Debugf("show")
 						// refocus window when event.Toggle=true
 						if event.Toggle {
+							n.logger.Debugf("show")
 							w.Show()
+						} else {
+							n.logger.Debugf("no show")
 						}
 					} else {
 						if w != nil {
