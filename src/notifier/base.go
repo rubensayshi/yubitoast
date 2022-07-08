@@ -1,8 +1,13 @@
 package notifier
 
 import (
-	"github.com/gobuffalo/packr/v2"
+	_ "embed"
+	"fmt"
+	"os"
 )
+
+//go:embed imgs/gnupg.png
+var icon []byte
 
 type Notifier interface {
 	Run()
@@ -12,8 +17,18 @@ type PopupEvent struct {
 	Toggle bool
 }
 
-func NewImgsBox() *packr.Box {
-	box := packr.New("imgbox", "./imgs")
+func createTmpIcon() string {
+	// create tmpfile holding the icon
+	iconFile, err := os.CreateTemp(os.TempDir(), "yubitoast-icon-*.png")
+	if err != nil {
+		fmt.Printf("Failed to create icon in tmpdir: %v \n", err)
+	}
+	iconPath := iconFile.Name()
 
-	return box
+	_, err = iconFile.Write(icon)
+	if err != nil {
+		fmt.Printf("Failed to create icon in tmpdir: %v \n", err)
+	}
+
+	return iconPath
 }
