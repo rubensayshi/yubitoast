@@ -7,7 +7,7 @@ import (
 	"github.com/juju/loggo"
 )
 
-var pkAuthRegexp = regexp.MustCompile("(chan_[0-9]+) -> PKAUTH OPENPGP\\.3$")
+var pkAuthRegexp = regexp.MustCompile("(chan_[0-9]+) -> PKAUTH (OPENPGP\\.3|[0-9A-F]+)$")
 var pkSignRegexp = regexp.MustCompile("(chan_[0-9]+) <- PKSIGN$")
 var eofRegexp = regexp.MustCompile("(chan_[0-9]+) <- \\[eof\\]$")
 var okRegexp = regexp.MustCompile("(chan_[0-9]+) <- OK$")

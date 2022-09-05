@@ -86,7 +86,11 @@ func (n *FyneNotifier) Run() {
 
 						n.logger.Debugf("add elements to window ...")
 
-						label := widget.NewLabel(fmt.Sprintf("Please touchy %d times!", pendingCnt))
+						plural := ""
+						if pendingCnt > 1 {
+							plural = "s"
+						}
+						label := widget.NewLabel(fmt.Sprintf("Please touch YubiKey %d time%s!", pendingCnt, plural))
 						label.Alignment = fyne.TextAlignCenter
 
 						btn := widget.NewButton("CLOSE", func() {
